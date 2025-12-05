@@ -77,8 +77,6 @@ CREATE TABLE Inventory (
 );
 
 
-
-
 -- Create secure users/roles
 CREATE ROLE donor_role NOLOGIN; CREATE ROLE field_staff_role NOLOGIN; 
 CREATE ROLE drive_staff_role NOLOGIN; CREATE ROLE admin_role NOLOGIN;
@@ -132,6 +130,7 @@ BEGIN
 END; $$ LANGUAGE plpgsql;
 CREATE TRIGGER trg_appointment_completed AFTER UPDATE ON Appointment 
 FOR EACH ROW EXECUTE FUNCTION update_donor_last_donation();
+
 
 
 
