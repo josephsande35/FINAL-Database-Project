@@ -131,6 +131,119 @@ END; $$ LANGUAGE plpgsql;
 CREATE TRIGGER trg_appointment_completed AFTER UPDATE ON Appointment 
 FOR EACH ROW EXECUTE FUNCTION update_donor_last_donation();
 
+-- ========================================
+-- SAMPLE DATA FOR blood_donation_db
+-- ========================================
+
+-- 1. Insert People (base table for inheritance)
+INSERT INTO Person (First_name, Last_name, Contact) VALUES
+('Aarav', 'Sharma', '+919876543210'),
+('Priya', 'Patel', '+918765432109'),
+('Rahul', 'Verma', '+919912345678'),
+('Sneha', 'Mehta', '+917890123456'),
+('Vikram', 'Singh', '+919834567890'),
+('Ananya', 'Reddy', '+918901234567'),
+('Rohan', 'Gupta', '+919567890123'),
+('Ishita', 'Joshi', '+917654890321'),
+('Arjun', 'Kumar', '+919223344556'),
+('Neha', 'Malhotra', '+918877665544');
+
+-- 2. Donors
+INSERT INTO Donor (Person_ID, Date_Last_Donation, Blood_Type) VALUES
+(1, '2025-07-20', 'O+'),      -- Aarav
+(2, '2025-08-15', 'A-'),      -- Priya
+(3, NULL, 'B+'),             -- Rahul – never donated yet
+(4, '2025-06-10', 'AB+'),     -- Sneha
+(5, '2025-09-01', 'O-'),      -- Vikram
+(6, NULL, 'A+'),             -- Ananya – eligible
+(7, '2025-10-05', 'B-');      -- Rohan
+
+-- 3. Staff (general)
+INSERT INTO Person (First_name, Last_name, Contact) VALUES
+('Dr. Sameer', 'Khan', '+919900112233'),
+('Nurse Lakshmi', 'Nair', '+919988776655'),
+('Rajesh', 'Yadav', '+919977665544'),
+('Pooja', 'Deshmukh', '+919955443322');
+
+INSERT INTO Staff (Person_ID, Job_Role, Staff_Email) VALUES
+(11, 'Medical Officer', 'sameer.khan@bloodbank.org'),
+(12, 'Nurse', 'lakshmi.nair@bloodbank.org'),
+(13, 'Field Coordinator', 'rajesh.yadav@bloodbank.org'),
+(14, 'Phlebotomist', 'pooja.d@bloodbank.org');
+
+-- Subclasses of Staff
+INSERT INTO Field_Staff (Staff_ID, Staff_Email) VALUES
+((SELECT Staff_ID FROM Staff WHERE Staff_Email='rajesh.yadav@bloodbank.org'), 'rajesh.yadav@bloodbank.org');
+
+INSERT INTO Drive_Staff (Staff_ID, Staff_Email) VALUES
+((SELECT Staff_ID FROM Staff WHERE Staff_Email='pooja.d@bloodbank.org'), 'pooja.d@bloodbank.org'),
+((SELECT Staff_ID FROM Staff WHERE Staff_Email='lakshmi.nair@bloodbank.org'), 'lakshmi.nair@bloodbank.org');
+
+-- 4. Upcoming Blood Drive Events
+INSERT INTO Drive_Event (Location, Date, Capacity) VALUES
+('Juhu Beach Community Hall, Mumbai', '2025-12-20', 80),
+('Infotech Park, Hinjewadi, Pune', '2025-12-22', 120),
+('Koramangala Indoor Stadium, Bangalore', '2025-12-28', 150),
+('Anna Nagar Tower Park, Chennai', '2026-01-05', 100),
+('Sector 17 Plaza, Chandigarh', '2026-01-12', 60);
+
+-- 5. Appointments (some confirmed, some still scheduled)
+INSERT INTO Appointment (Donor_ID, Event_ID, Time_Slot, Status) VALUES
+(1, 1, '09:30:00', 'Confirmed'),
+(2, 1, '10:00:00', 'Confirmed'),
+(3, 1, '11:00:00', 'Scheduled'),
+(4, 2, '14:00:00', 'Scheduled'),
+(5, 2, '14:30:00', 'Confirmed'),
+(6, 3, '10:30:00', 'Scheduled'),
+(7, 3, '11:30:00', 'Scheduled'),
+(1, 4, '09:00:00', 'Scheduled');  -- Aarav wants to donate again (will be blocked by eligibility rule if <112 days)
+
+-- 6. Some past completed appointments → generate blood units
+-- (we'll mark a couple as Completed so trigger updates Date_Last_Donation and we can insert units)
+UPDATE Appointment SET Status = 'Completed' WHERE Appointment_ID IN (1,2,5);
+
+-- Now insert the collected blood units from those completed appointments
+INSERT INTO Blood_Unit (Donor_ID, Collection_Date, Volume, Status) VALUES
+(1, '2025-12-20', 450.00, 'Collected'),
+(2, '2025-12-20', 420.00, 'Collected'),
+(5, '2025-12-22', 480.00, 'Collected');
+
+-- 7. Screening/Testing results
+INSERT INTO Screen_Testing (Unit_ID, Test_Date, Results_Status) VALUES
+(1, '2025-12-21', 'Pass'),
+(2, '2025-12-21', 'Pass'),
+(3, '2025-12-23', 'Fail');  -- just one bad unit for realism
+
+-- Update blood unit status accordingly
+UPDATE Blood_Unit SET Status = 'Approved' WHERE Unit_ID IN (1,2);
+UPDATE Blood_Unit SET Status = 'Rejected' WHERE Unit_ID = 3;
+
+-- 8. Inventory (approved units only)
+INSERT INTO Inventory (Unit_ID, Collection_Date, Amount) VALUES
+(1, '2025-12-20', 450.00),
+(2, '2025-12-20', 420.00);
+
+-- ========================================
+-- Quick verification queries you can run
+-- ========================================
+
+-- See what donors see
+SELECT * FROM donor_view ORDER BY Donor_ID;
+
+-- See what drive staff see
+SELECT * FROM drive_staff_view ORDER BY Date;
+
+-- Check donor eligibility with the procedure
+CALL check_donor_eligibility(1);  -- Aarav just donated → should raise exception
+CALL check_donor_eligibility(3);  -- Rahul never donated → eligible
+CALL check_donor_eligibility(6);  -- Ananya never donated → eligible
+
+-- Current blood inventory
+SELECT i.*, bu.Blood_Type, p.First_name || ' ' || p.Last_name AS Donor_Name
+FROM Inventory i
+JOIN Blood_Unit bu ON i.Unit_ID = bu.Unit_ID
+JOIN Donor d ON bu.Donor_ID = d.Donor_ID
+JOIN Person p ON d.Person_ID = p.Person_ID;
 
 
 
